@@ -1,9 +1,12 @@
 # YOLO Studio
 
 <div align="center">
+    <p>
+        <b>English</b> | <a href="README_CN.md">简体中文</a>
+    </p>
     <img src="assets/logo.png" alt="YOLO Studio Logo" width="200"/>
     <br>
-    <h3>一站式YOLO模型训练、标注与部署工具</h3>
+    <h3>All-in-One YOLO Model Training, Annotation and Deployment Tool</h3>
     <p>
         <img src="https://img.shields.io/badge/Python-3.7+-blue.svg" alt="Python 3.7+"/>
         <img src="https://img.shields.io/badge/Framework-Tkinter-green.svg" alt="Tkinter"/>
@@ -12,127 +15,141 @@
     </p>
 </div>
 
-## ✨ 项目简介
+## ✨ Project Overview
 
-YOLO Studio 是一个功能强大的桌面应用，集成了目标检测模型的全流程操作，包括数据标注、模型训练和模型导出部署，支持主流的YOLOv5、YOLOv8等算法。它具有直观的用户界面，无需编程知识即可完成从标注到部署的全过程。无论您是计算机视觉研究者、机器学习工程师，还是希望将AI融入产品的开发者，YOLO Studio都是您的理想工具。
+YOLO Studio is a powerful desktop application that integrates the complete workflow for object detection models, including data annotation, model training, and model export/deployment. It supports mainstream algorithms such as YOLOv5 and YOLOv8. With its intuitive user interface, you can complete the entire process from annotation to deployment without programming knowledge. Whether you're a computer vision researcher, machine learning engineer, or developer looking to integrate AI into your products, YOLO Studio is your ideal tool.
 
-## 🚀 核心特性
+## 🚀 Key Features
 
-- **多功能标注工具**：直观的图形界面进行矩形、多边形等标注操作
-- **兼容多种YOLO版本**：支持YOLOv5、YOLOv8等主流算法训练
-- **一键式训练**：简化模型训练流程，内置参数优化推荐
-- **灵活导出格式**：支持ONNX、TensorRT、OpenVINO等多种推理框架
-- **跨平台支持**：Windows、Linux、MacOS系统通用
-- **简洁界面设计**：专为非技术用户设计的友好操作流程
-- **内置推理功能**：训练完成后直接进行模型效果测试
-- **批量操作支持**：高效处理大规模数据集
+- **Multi-functional Annotation Tool**: Intuitive graphical interface for rectangular, polygon, and other annotation operations
+- **Compatible with Multiple YOLO Versions**: Supports training with YOLOv5, YOLOv8, and other mainstream algorithms
+- **One-Click Training**: Simplified model training process with built-in parameter optimization recommendations
+- **Flexible Export Formats**: Support for ONNX, TensorRT, OpenVINO, and other inference frameworks
+- **Cross-Platform Support**: Compatible with Windows, Linux, and macOS
+- **Clean Interface Design**: User-friendly workflow designed for non-technical users
+- **Built-in Inference Function**: Test model effectiveness immediately after training
+- **Batch Operation Support**: Efficiently process large datasets
 
-## 📸 界面预览
+## 📸 Interface Preview - Professional Version
 
 <div align="center">
-    <img src="assets/screenshots/annotation.png" alt="标注界面" width="45%"/>
-    <img src="assets/screenshots/training.png" alt="训练界面" width="45%"/>
+    <img src="assets/screenshots/annotation.png" alt="Annotation Interface" width="45%"/>
+    <img src="assets/screenshots/training.png" alt="Training Interface" width="45%"/>
     <br><br>
-    <img src="assets/screenshots/export.png" alt="导出界面" width="45%"/>
-    <img src="assets/screenshots/inference.png" alt="推理界面" width="45%"/>
+    <img src="assets/screenshots/export.png" alt="Export Interface" width="45%"/>
+    <img src="assets/screenshots/inference.png" alt="Inference Interface" width="45%"/>
 </div>
 
-## 🔧 快速开始
+## 🔧 Quick Start
 
-### 环境要求
+### Requirements
 - Python 3.7+
-- CUDA (可选，用于GPU训练)
+- CUDA (optional, for GPU training)
 
-### 安装步骤
+### Installation Steps
 
 ```bash
-# 克隆仓库
-git clone https://github.com/yourusername/yolo-studio.git
+# Clone the repository
+git clone https://github.com/PrettyMyGirlZyy4Embedded/yolo-studio.git
 cd yolo-studio
 
-# 安装依赖
+# Install dependencies
 pip install -r requirements.txt
 
-# 启动应用
+# Launch the application
 python main.py
 ```
 
-程序会自动检查和安装必要的依赖项。
+The program will automatically check and install necessary dependencies.
 
-## 📚 功能模块详解
+### Language Settings
 
-### 1. 数据标注模块
+YOLO Studio supports multiple languages:
 
-- 支持多种标注形状：矩形、多边形、点、线段等
-- 便捷的图像导航和缩放功能
-- 自动保存和恢复标注进度
-- 快捷键支持提高标注效率
-- 标注数据统计与可视化
+1. After launching the app, click "Help" > "Language Settings" in the top menu bar
+2. Select your preferred language in the dialog
+3. Click the "Apply" button
+4. Some UI elements (like menus) will update immediately
+5. **Important:** To fully switch the interface language, you need to restart the application
 
-### 2. 模型训练模块
+Currently supported languages:
+- Simplified Chinese (Default)
+- English
 
-- 内置YOLOv5/YOLOv8代码库集成
-- 可视化训练参数配置
-- 实时训练进度和损失曲线显示
-- 训练结果自动评估
-- 断点续训支持
-- 预训练模型选择
+## 📚 Module Details
 
-### 3. 模型导出模块
+### 1. Data Annotation Module
 
-- 多格式导出：ONNX、TensorRT、TFLite、OpenVINO等
-- 模型量化选项：INT8/FP16精度
-- 导出参数可视化配置
-- 自动验证导出模型正确性
+- Supports annotation shapes: rectangles
+- Convenient image navigation and zoom functions
+- Automatic saving and restoration of annotation progress
+- Shortcut key support to improve annotation efficiency
+- Annotation data statistics and visualization
 
-### 4. 推理测试模块
+### 2. Model Training Module
 
-- 图像和视频推理支持
-- 批量推理能力
-- 推理结果可视化
-- 性能指标评估
+- Integrated YOLOv5/YOLOv8 code repositories
+- Visual training parameter configuration
+- Real-time training progress and loss curve display
+- Automatic evaluation of training results
+- Checkpoint resumption support
+- Pre-trained model selection
 
-## 🛠️ 版本对比
+### 3. Model Export Module
 
-| 功能 | 开源版 | 专业版 |
-|------|--------|--------|
-| 数据标注 | ✅ 矩形标注 | ✅ 全部形状标注 |
-| 模型训练 | ✅ 基础训练 | ✅ 高级训练参数 |
-| 模型导出 | ❌ | ✅ 多格式导出 |
-| 推理测试 | ❌ | ✅ |
-| 标注数量限制 | 100张图片 | 无限制 |
-| 训练参数限制 | 基础参数 | 全部参数 |
-| 类别数量限制 | 10个类别 | 无限制 |
+- Multiple export formats: ONNX, TensorRT, TFLite, OpenVINO, etc.
+- Model quantization options: INT8/FP16 precision
+- Visual export parameter configuration
+- Automatic verification of exported model correctness
 
-## 🤝 如何贡献
+### 4. Inference Testing Module
 
-我们非常欢迎社区贡献！无论是功能改进、Bug修复还是文档完善都非常感谢。
+- Image and video inference support
+- Batch inference capability
+- Inference result visualization
+- Performance metrics evaluation
 
-1. Fork本仓库
-2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m 'Add some amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 创建Pull Request
+## 🛠️ Version Comparison
 
-## 📄 开源协议
+| Feature | Open Source Version | Professional Version |
+|---------|---------------------|----------------------|
+| Data Annotation | ✅ Rectangle annotation | ✅ All shapes annotation |
+| Model Training | ✅ Basic training | ✅ Advanced training parameters |
+| Model Export | ❌ | ✅ Multiple format export |
+| Inference Testing | ❌ | ✅ |
+| Annotation Limit | 100 images | Unlimited |
+| Training Parameter Limit | Basic parameters | All parameters |
+| Class Count Limit | 10 classes | Unlimited |
 
-本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
+## 🤝 How to Contribute
 
-## 🙏 鸣谢
+We welcome community contributions! Whether it's feature improvements, bug fixes, or documentation improvements, we appreciate all help.
 
-- [Ultralytics](https://github.com/ultralytics/yolov5) - YOLOv5原作者
-- [ONNX](https://github.com/onnx/onnx) - 开放神经网络交换格式
-- [OpenCV](https://github.com/opencv/opencv) - 计算机视觉库
+1. Fork this repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Create a Pull Request
 
-## 📬 联系方式
+## 📄 License
 
-- 项目问题请使用 [GitHub Issues](https://github.com/yourusername/yolo-studio/issues)
-- 商业合作请联系: email@example.com
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [Ultralytics](https://github.com/ultralytics/yolov5) - YOLOv5 creator
+- [ONNX](https://github.com/onnx/onnx) - Open Neural Network Exchange format
+- [OpenCV](https://github.com/opencv/opencv) - Computer Vision library
+
+## 📬 Contact
+
+- For project issues, please use [GitHub Issues](https://github.com/PrettyMyGirlZyy4Embedded/yolo-studio/issues)
+- For business cooperation or to obtain the professional version and license, please contact: its.jianghe@gmail.com
 
 ---
 
 <div align="center">
-    <strong>YOLO Studio - 让AI目标检测变得简单</strong>
+    <strong>YOLO Studio - Making AI Object Detection Simple</strong>
     <br>
-    <sub>如果这个项目对您有帮助，请给它一个⭐️</sub>
+    <sub>If this project helps you, please give it a ⭐️</sub>
 </div> 
