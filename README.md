@@ -117,7 +117,7 @@ Currently supported languages:
 | Model Training | ✅ Basic training | ✅ Advanced training parameters |
 | Model Export | ❌ | ✅ Multiple format export |
 | Inference Testing | ❌ | ✅ |
-| Annotation Limit | 100 images | Unlimited |
+| Annotation Limit | Unlimited | Unlimited |
 | Training Parameter Limit | Basic parameters | All parameters |
 | Class Count Limit | 10 classes | Unlimited |
 
