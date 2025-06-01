@@ -12,6 +12,8 @@ import shutil
 from urllib.request import urlretrieve
 import zipfile
 from config import config # 直接从config导入config
+import json
+import time
 
 # Import security module
 try:
@@ -36,6 +38,15 @@ class TrainingHandler:
         self.checkpoint_dir = os.path.join(os.getcwd(), "training_checkpoints")
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         self.last_checkpoint_path = None
+        
+        # 配置保存路径
+        self.settings_dir = os.path.join(os.path.expanduser('~'), '.config', 'yolo_studio')
+        self.settings_file = os.path.join(self.settings_dir, 'training_settings.json')
+        os.makedirs(self.settings_dir, exist_ok=True)
+        
+        # 延迟加载配置，确保UI组件初始化完成
+        # 在UI初始化完成后加载配置
+        self.app.master.after(1000, self.load_training_settings)
 
     def _set_progress_indeterminate(self, start_animation=True):
         """Helper to set progress bar to indeterminate mode."""
@@ -113,82 +124,130 @@ class TrainingHandler:
             try:
                 self.app._add_to_output_log_queue("开始修复环境兼容性问题...\n")
                 self.app.master.after(0, lambda: self.app.env_status_label.config(text="正在修复环境问题..."))
-                self.app.master.after(0, self._update_progress_label, "正在卸载软件包...")
+                
+                # 检查YOLO源码路径是否已设置
+                yolo_code_path = self.app.yolo_code_path.get()
+                if not yolo_code_path or not os.path.isdir(yolo_code_path):
+                    self.app._add_to_output_log_queue("错误：未设置YOLO源码路径，请先选择YOLO源码目录。\n", is_error=True)
+                    self.app.master.after(0, lambda: self.app.env_status_label.config(text="未设置YOLO源码路径"))
+                    self.app.master.after(0, self._update_progress_label, "修复环境失败: 未设置YOLO源码路径")
+                    return
+                
+                # 查找requirements.txt文件
+                requirements_path = None
+                possible_req_paths = [
+                    os.path.join(yolo_code_path, "requirements.txt"),
+                    os.path.join(yolo_code_path, "ultralytics", "requirements.txt")
+                ]
+                
+                for path in possible_req_paths:
+                    if os.path.exists(path):
+                        requirements_path = path
+                        break
+                
+                if not requirements_path:
+                    self.app._add_to_output_log_queue("错误：在YOLO源码目录中未找到requirements.txt文件。\n", is_error=True)
+                    self.app.master.after(0, lambda: self.app.env_status_label.config(text="未找到requirements.txt"))
+                    self.app.master.after(0, self._update_progress_label, "修复环境失败: 未找到requirements.txt")
+                    return
+                
+                self.app._add_to_output_log_queue(f"找到requirements文件: {requirements_path}\n")
+                self.app.master.after(0, self._update_progress_label, "正在卸载现有包...")
                 self.app.master.after(0, self._set_progress_determinate, 0) # Reset first
                 
-                uninstall_packages = ["numpy", "opencv-python", "opencv-contrib-python", "opencv-python-headless"]
-                self.app._add_to_output_log_queue("步骤1: 卸载冲突的包...\n")
-                for i, package in enumerate(uninstall_packages):
-                    self.app._add_to_output_log_queue(f"卸载 {package}...\n")
-                    # self.app.master.after(0, self._update_progress_label, f"正在卸载 {package}...") # Too fast to show
-                    uninstall_cmd = [sys.executable, "-m", "pip", "uninstall", package, "-y"]
-                    subprocess.run(uninstall_cmd, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                self.app.master.after(0, self._set_progress_determinate, 10)
-
+                # 读取requirements.txt文件获取需要安装的包
+                with open(requirements_path, 'r') as f:
+                    requirements_content = f.read()
+                
+                self.app._add_to_output_log_queue("步骤1: 卸载现有的冲突包...\n")
+                
+                # 解析requirements.txt中的包名和版本
+                packages_to_install = []
+                for line in requirements_content.splitlines():
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        # 移除注释部分
+                        if '#' in line:
+                            line = line[:line.index('#')].strip()
+                        
+                        # 处理>=, ==, <=等版本要求
+                        package_name = line.split('>=')[0].split('==')[0].split('<=')[0].split('>')[0].split('<')[0].strip()
+                        packages_to_install.append(line)
+                        
+                        # 卸载现有版本
+                        if package_name:
+                            self.app._add_to_output_log_queue(f"卸载 {package_name}...\n")
+                            uninstall_cmd = [sys.executable, "-m", "pip", "uninstall", package_name, "-y"]
+                            subprocess.run(uninstall_cmd, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+                
+                self.app.master.after(0, self._set_progress_determinate, 20)
 
                 self.app.master.after(0, self._update_progress_label, "正在清理pip缓存...")
                 self.app._add_to_output_log_queue("步骤2: 清理pip缓存...\n")
                 cache_cmd = [sys.executable, "-m", "pip", "cache", "purge"]
                 subprocess.run(cache_cmd, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                self.app.master.after(0, self._set_progress_determinate, 20)
+                self.app.master.after(0, self._set_progress_determinate, 30)
                 
-                # Install NumPy
-                self.app.master.after(0, self._update_progress_label, "正在安装 NumPy (可能需要几分钟)...")
+                # 直接从requirements.txt安装
+                self.app.master.after(0, self._update_progress_label, "正在安装依赖 (可能需要几分钟)...")
                 self.app.master.after(0, self._set_progress_indeterminate)
-                self.app._add_to_output_log_queue("步骤3: 安装兼容版本的NumPy...\n")
-                numpy_cmd = [sys.executable, "-m", "pip", "install", "numpy==1.24.3", "--no-cache-dir"]
-                numpy_process = subprocess.Popen(numpy_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0, encoding='utf-8', errors='replace')
-                numpy_stdout, numpy_stderr = numpy_process.communicate()
-                self.app.master.after(0, self._set_progress_determinate, 50) # Assume 50% after numpy
-
-                if numpy_process.returncode == 0:
-                    self.app._add_to_output_log_queue("NumPy 1.24.3 安装成功\n")
-                else:
-                    self.app._add_to_output_log_queue(f"NumPy 安装失败: {numpy_stderr}\n", is_error=True)
-                    self.app.master.after(0, lambda: self.app.env_status_label.config(text="环境修复失败 (NumPy)"))
-                    self.app.master.after(0, self._update_progress_label, "NumPy 安装失败")
-                    return
+                self.app._add_to_output_log_queue(f"步骤3: 从requirements.txt安装依赖...\n")
                 
-                # Install OpenCV
-                self.app.master.after(0, self._update_progress_label, "正在安装 OpenCV (可能需要几分钟)...")
-                self.app.master.after(0, self._set_progress_indeterminate)
-                self.app._add_to_output_log_queue("步骤4: 安装兼容的OpenCV...\n")
-                cv_cmd = [sys.executable, "-m", "pip", "install", "opencv-python==4.8.1.78", "--no-cache-dir"]
-                cv_process = subprocess.Popen(cv_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0, encoding='utf-8', errors='replace')
-                cv_stdout, cv_stderr = cv_process.communicate()
-                self.app.master.after(0, self._set_progress_determinate, 90) # Assume 90% after opencv
-
-                if cv_process.returncode == 0:
-                    self.app._add_to_output_log_queue("OpenCV 4.8.1.78 安装成功\n")
+                install_cmd = [sys.executable, "-m", "pip", "install", "-r", requirements_path, "--no-cache-dir"]
+                self.app._add_to_output_log_queue(f"执行命令: {' '.join(install_cmd)}\n")
+                
+                install_process = subprocess.Popen(install_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, 
+                                                  creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0, 
+                                                  encoding='utf-8', errors='replace')
+                
+                # 实时获取输出
+                while True:
+                    line = install_process.stdout.readline()
+                    if not line and install_process.poll() is not None:
+                        break
+                    if line:
+                        self.app._add_to_output_log_queue(line.strip() + "\n")
+                
+                install_stdout, install_stderr = install_process.communicate()
+                self.app.master.after(0, self._set_progress_determinate, 90)
+                
+                if install_process.returncode == 0:
+                    self.app._add_to_output_log_queue("依赖安装成功\n")
                 else:
-                    self.app._add_to_output_log_queue(f"OpenCV 安装失败: {cv_stderr}\n", is_error=True)
-                    self.app.master.after(0, lambda: self.app.env_status_label.config(text="环境修复失败 (OpenCV)"))
-                    self.app.master.after(0, self._update_progress_label, "OpenCV 安装失败")
+                    self.app._add_to_output_log_queue(f"依赖安装失败: {install_stderr}\n", is_error=True)
+                    self.app.master.after(0, lambda: self.app.env_status_label.config(text="依赖安装失败"))
+                    self.app.master.after(0, self._update_progress_label, "依赖安装失败")
                     return
                 
                 self.app.master.after(0, self._update_progress_label, "正在验证安装...")
-                self.app._add_to_output_log_queue("步骤5: 验证安装...\n")
+                self.app._add_to_output_log_queue("步骤4: 验证安装...\n")
                 try:
-                    import importlib, numpy as np, cv2 # Need to import them here for the thread
-                    modules_to_reload = ['numpy', 'cv2']
-                    for module_name in modules_to_reload:
-                        if module_name in sys.modules:
-                            importlib.reload(sys.modules[module_name]) # Reload in current thread
+                    import importlib
                     
-                    # Re-import after reload to ensure the new versions are used in this thread's scope
-                    np_version = importlib.import_module('numpy').__version__
-                    cv2_version = importlib.import_module('cv2').__version__
-
-                    self.app._add_to_output_log_queue(f"✓ NumPy版本: {np_version}\n")
-                    self.app._add_to_output_log_queue(f"✓ OpenCV版本: {cv2_version}\n")
+                    # 检查常用依赖是否能正常导入
+                    critical_modules = ['numpy', 'cv2', 'torch', 'yaml', 'matplotlib']
+                    for module_name in critical_modules:
+                        try:
+                            if module_name in sys.modules:
+                                importlib.reload(sys.modules[module_name])
+                            module = importlib.import_module(module_name)
+                            version = getattr(module, '__version__', '未知')
+                            self.app._add_to_output_log_queue(f"✓ {module_name} 版本: {version}\n")
+                        except ImportError as e:
+                            self.app._add_to_output_log_queue(f"✗ 无法导入 {module_name}: {str(e)}\n", is_error=True)
                     
-                    test_img = np.zeros((100, 100, 3), dtype=np.uint8) # np from this thread
-                    cv2.resize(test_img, (50, 50)) # cv2 from this thread
-                    self.app._add_to_output_log_queue("✓ OpenCV功能测试通过\n")
+                    # 简单测试numpy和opencv
+                    try:
+                        import numpy as np
+                        import cv2
+                        test_img = np.zeros((100, 100, 3), dtype=np.uint8)
+                        cv2.resize(test_img, (50, 50))
+                        self.app._add_to_output_log_queue("✓ OpenCV功能测试通过\n")
+                    except Exception as e:
+                        self.app._add_to_output_log_queue(f"✗ OpenCV功能测试失败: {str(e)}\n", is_error=True)
                     
                     self.app._add_to_output_log_queue("环境修复成功！\n")
                     self.app.master.after(0, lambda: self.app.env_status_label.config(text="环境已修复"))
-                    self.app.master.after(0, self._update_progress_label, "环境修复成功！")
                     self.app.master.after(0, self._set_progress_determinate, 100)
                     self.app.master.after(0, lambda: messagebox.showinfo("修复成功", "环境问题已修复！", parent=self.app.master))
                 except ImportError as e:
@@ -212,7 +271,7 @@ class TrainingHandler:
 
 
         if messagebox.askyesno("修复环境", 
-                               "这将重新安装NumPy和OpenCV包到兼容版本。\n"
+                               "这将根据YOLO源码目录中的requirements.txt重新安装所有依赖包。\n"
                                "可能需要几分钟时间，是否继续？", 
                                parent=self.app.master):
             threading.Thread(target=fix_thread, daemon=True).start()
@@ -613,7 +672,11 @@ class TrainingHandler:
                 self.app.yolo_code_path.set(os.path.abspath(target_code_root))
                 self.app._add_to_output_log_queue(f"代码解压至: {self.app.yolo_code_path.get()}\n")
                 self.app.master.after(0, self._update_progress_label, "YOLO代码准备就绪")
-                self._install_requirements_threaded(self.app.yolo_code_path.get(), repo_info["requirements"])
+                # 不再自动安装依赖
+                # self._install_requirements_threaded(self.app.yolo_code_path.get(), repo_info["requirements"])
+                
+                # 添加提示信息，建议用户使用"修复环境"按钮
+                self.app._add_to_output_log_queue("YOLO代码已下载完成。请点击'修复环境'按钮安装所需依赖。\n")
             except Exception as e:
                 error_msg = f"下载或解压 {framework_name} {subversion_tag} 失败: {e}"
                 self.app._add_to_output_log_queue(error_msg + "\n", is_error=True)
@@ -629,21 +692,25 @@ class TrainingHandler:
 
 
     def _select_existing_yolo_code_threaded(self, framework_name, subversion_tag):
+        """选择现有的YOLO代码目录，并设置代码路径"""
         folder_path = filedialog.askdirectory(
             title=f"选择 {framework_name} {subversion_tag} 代码根文件夹",
             parent=self.app.master
         )
+        
         if folder_path:
+            # 获取绝对路径
             abs_path = os.path.abspath(folder_path)
+            
+            # 设置全局YOLO代码路径
             if hasattr(self.app, 'set_global_yolo_code_path'):
                 self.app.set_global_yolo_code_path(abs_path)
             else:
                 self.app.yolo_code_path.set(abs_path)
+            
+            # 记录日志并提示用户使用修复环境按钮
             self.app._add_to_output_log_queue(f"用户选择YOLO代码路径: {abs_path}\n")
-        repo_info = config.YOLO_VERSIONS.get(framework_name, {})
-        req_file = repo_info.get("requirements")
-        if req_file:
-            self._install_requirements_threaded(self.app.yolo_code_path.get(), req_file) # This has progress
+            self.app._add_to_output_log_queue("YOLO代码路径已设置。请点击\"修复环境\"按钮安装所需依赖。\n")
 
     def _install_requirements_threaded(self, code_path, req_file_name):
         # (This method already correctly uses indeterminate progress bar)
@@ -696,6 +763,76 @@ class TrainingHandler:
 
         threading.Thread(target=install, daemon=True).start()
         
+    def _patch_yolo_weights_compatibility(self, code_path):
+        """修补YOLOv5代码以兼容PyTorch 2.6+的权重加载安全机制"""
+        try:
+            import torch
+            if int(torch.__version__.split('.')[0]) < 2 or (int(torch.__version__.split('.')[0]) == 2 and int(torch.__version__.split('.')[1]) < 6):
+                # PyTorch版本低于2.6，不需要修补
+                self.app._add_to_output_log_queue(f"PyTorch {torch.__version__} 版本无需修补权重加载代码", is_train=True)
+                return True
+                
+            # 找到train.py文件
+            framework = self.app.selected_yolo_version_name.get()
+            if framework != "YOLOv5":
+                # 目前只针对YOLOv5进行修补
+                return True
+                
+            train_py_path = os.path.join(code_path, "train.py")
+            if not os.path.exists(train_py_path):
+                self.app._add_to_output_log_queue(f"未找到训练脚本: {train_py_path}", is_error=True, is_train=True)
+                return False
+                
+            self.app._add_to_output_log_queue("检测到PyTorch 2.6+版本，需要修补YOLOv5权重加载代码", is_train=True)
+            
+            with open(train_py_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                
+            # 检查是否已经修补过
+            if 'weights_only=False' in content and 'torch.load' in content:
+                self.app._add_to_output_log_queue("代码已被修补，无需再次修改", is_train=True)
+                return True
+                
+            # 使用正则表达式修改torch.load调用，添加weights_only=False参数
+            import re
+            
+            # 直接读取原始文件的每一行，找到目标行并替换
+            new_lines = []
+            target_found = False
+            
+            with open(train_py_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    if 'ckpt = torch.load(weights, map_location=' in line and 'weights_only' not in line:
+                        # 更安全的替换方式
+                        new_line = line.replace('torch.load(weights, map_location=', 
+                                               'torch.load(weights, map_location=')
+                        # 删除结尾的右括号和注释
+                        if ')' in new_line:
+                            new_line = new_line.split(')', 1)[0]
+                            # 添加weights_only参数和新注释
+                            new_line += ', weights_only=False)  # 修补以兼容PyTorch 2.6+\n'
+                            target_found = True
+                        new_lines.append(new_line)
+                    else:
+                        new_lines.append(line)
+            
+            if not target_found:
+                self.app._add_to_output_log_queue("警告：未找到需要修补的代码行，修补可能失败", is_train=True, is_error=True)
+                return False
+            
+            # 写入修改后的内容
+            with open(train_py_path, 'w', encoding='utf-8') as f:
+                f.writelines(new_lines)
+                
+            self.app._add_to_output_log_queue(f"成功修补YOLOv5代码以兼容PyTorch 2.6+版本", is_train=True)
+            return True
+            
+        except Exception as e:
+            self.app._add_to_output_log_queue(f"修补YOLOv5代码失败: {str(e)}", is_error=True, is_train=True)
+            import traceback
+            self.app._add_to_output_log_queue(traceback.format_exc(), is_error=True, is_train=True)
+            return False
+
     @protect_training_feature("batch_size")
     @protect_training_feature("epochs")
     def start_training(self):
@@ -791,6 +928,8 @@ class TrainingHandler:
         command_generator = yolo_config_dict["command_generator"]
         code_path_val = self.app.yolo_code_path.get()
         train_script_abs_path = ""
+        
+        # 为YOLOv5处理特殊的修补和路径设置
         if framework == "YOLOv5":
             if not code_path_val or not os.path.isdir(code_path_val):
                 messagebox.showerror("错误", "请先为YOLOv5设置有效的代码路径。", parent=self.app.master)
@@ -800,6 +939,44 @@ class TrainingHandler:
             if not os.path.exists(train_script_abs_path):
                 messagebox.showerror("错误", f"YOLOv5训练脚本未找到: {train_script_abs_path}", parent=self.app.master)
                 return
+                
+            # 修补YOLOv5代码以兼容PyTorch 2.6+的权重加载安全机制
+            if not self._patch_yolo_weights_compatibility(code_path_val):
+                if not messagebox.askyesno("兼容性警告", 
+                                          "检测到PyTorch 2.6+版本，但无法自动修补YOLOv5代码。\n"
+                                          "如果继续训练可能会遇到权重加载错误。\n\n"
+                                          "是否仍要继续训练？", 
+                                          parent=self.app.master):
+                    return
+        
+        # 为YOLOv8检查是否已安装
+        elif framework == "YOLOv8":
+            # 检查是否安装了ultralytics包
+            try:
+                import importlib
+                ultralytics_spec = importlib.util.find_spec('ultralytics')
+                if ultralytics_spec is None:
+                    if not messagebox.askyesno("缺少依赖", 
+                                             "未检测到ultralytics包。YOLOv8需要安装ultralytics。\n"
+                                             "是否立即安装？", 
+                                             parent=self.app.master):
+                        return
+                    self.app._add_to_output_log_queue("安装ultralytics包中...\n")
+                    # 安装ultralytics包
+                    try:
+                        # 使用--no-cache-dir避免缓存问题，添加[cli]确保安装命令行工具
+                        install_cmd = [sys.executable, "-m", "pip", "install", "ultralytics[cli]", "--no-cache-dir"]
+                        result = subprocess.run(install_cmd, capture_output=True, text=True)
+                        if result.returncode != 0:
+                            raise Exception(f"安装失败: {result.stderr}")
+                        self.app._add_to_output_log_queue("ultralytics包安装成功\n")
+                    except Exception as e:
+                        messagebox.showerror("安装错误", f"安装ultralytics失败: {e}", parent=self.app.master)
+                        return
+            except ImportError:
+                messagebox.showerror("导入错误", "检查ultralytics包时出错", parent=self.app.master)
+                return
+            
         params = {
             "imgsz": imgsz, "batch_size": batch_size, "epochs": epochs,
             "datasets_yaml_path": self.app.datasets_yaml_path.get(),
@@ -813,7 +990,36 @@ class TrainingHandler:
         except Exception as e:
             messagebox.showerror("命令生成错误", f"生成训练命令时出错: {e}", parent=self.app.master)
             return
-        working_dir = code_path_val if framework == "YOLOv5" and code_path_val else os.getcwd()
+
+        # 设置工作目录，YOLOv8不需要源码目录作为工作目录
+        if framework == "YOLOv5" and code_path_val:
+            working_dir = code_path_val 
+        elif framework == "YOLOv8":
+            # YOLOv8在当前目录执行即可
+            working_dir = os.getcwd()
+        else:
+            working_dir = os.getcwd()
+            
+        # 如果是YOLOv8，检查是否可以直接使用yolo命令
+        if framework == "YOLOv8":
+            try:
+                # 检查yolo命令是否可用
+                check_cmd = ["yolo", "--version"]
+                result = subprocess.run(check_cmd, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+                if result.returncode == 0:
+                    # 如果yolo命令可用，使用yolo直接命令替换python -m ultralytics.yolo
+                    # 根据命令结构获取正确的参数
+                    if len(training_command) > 3 and training_command[2] == "ultralytics.yolo":
+                        yolo_cmd_params = training_command[3:] # 去除python -m ultralytics.yolo
+                    else:
+                        yolo_cmd_params = training_command[2:] # 去除python -m ultralytics
+                    training_command = ["yolo"] + yolo_cmd_params
+                    self.app._add_to_output_log_queue("检测到可用的yolo命令，将使用直接命令模式\n", is_train=True)
+                    # 添加详细的命令参数日志用于调试
+                    self.app._add_to_output_log_queue(f"调试信息 - 实际执行命令: {' '.join(training_command)}\n", is_train=True)
+            except Exception as e:
+                self.app._add_to_output_log_queue(f"尝试检查yolo命令时出错: {e}，将使用模块导入方式\n", is_train=True)
+            
         self.app._add_to_output_log_queue("="*50 + "\n", is_train=True)
         self.app._add_to_output_log_queue(f"开始训练: {framework} {self.app.selected_yolo_subversion.get() or ''}\n", is_train=True)
         self.app._add_to_output_log_queue(f"命令: {' '.join(map(str,training_command))}\n", is_train=True)
@@ -885,28 +1091,58 @@ class TrainingHandler:
 
     def _training_finished(self, return_code, error_msg=None):
         # (No changes needed here)
-        self.app.is_training = False 
+        self.app.is_training = False
         self.app.start_train_btn.config(state="normal")
         self.app.stop_train_btn.config(state="disabled")
-        if error_msg:
-            self.app._add_to_output_log_queue(f"\n训练异常: {error_msg}\n", is_error=True, is_train=True)
-            self.app.progress_label.config(text="训练异常!")
-            self.app.progress_bar["value"] = 0
-        elif return_code == 0:
-            self.app._add_to_output_log_queue("\n训练成功完成。\n", is_train=True)
-            self.app.progress_label.config(text="训练成功完成!")
-            self.app.progress_bar["value"] = 100
-        elif return_code == -1: 
-            self.app._add_to_output_log_queue("\n训练已由用户停止。\n", is_train=True)
-            self.app.progress_label.config(text="训练已停止")
-        elif return_code == -98: 
-             self.app._add_to_output_log_queue(f"\n训练启动失败: {error_msg}\n", is_error=True, is_train=True) 
-             self.app.progress_label.config(text="训练启动失败 (文件未找到)")
-             self.app.progress_bar["value"] = 0
-        else: 
-            self.app._add_to_output_log_queue(f"\n训练失败，错误码: {return_code}\n", is_error=True, is_train=True)
-            self.app.progress_label.config(text=f"训练失败 (错误码: {return_code})")
-            self.app.progress_bar["value"] = 0
+        self.app.progress_bar["value"] = 0
+        self.app.progress_label.config(text="")
+        
+        if return_code == 0:
+            self.app._add_to_output_log_queue("\n训练完成！", is_train=True)
+            if messagebox.askyesno("训练完成", 
+                             "训练已完成！\n是否打开训练结果目录？", 
+                             parent=self.app.master):
+                project_dir = os.path.normpath(self.app.project_dir_var.get())
+                run_name = os.path.normpath(self.app.run_name_var.get() or "exp")
+                results_dir = os.path.join(project_dir, run_name)
+                if os.path.exists(results_dir):
+                    if platform.system() == "Windows":
+                        os.startfile(results_dir)
+                    elif platform.system() == "Darwin":
+                        subprocess.call(["open", results_dir])
+                    else:
+                        subprocess.call(["xdg-open", results_dir])
+                else:
+                    messagebox.showerror("错误", f"无法找到训练结果目录: {results_dir}", parent=self.app.master)
+        else:
+            self.app._add_to_output_log_queue(f"\n训练失败，错误码: {return_code}", is_train=True, is_error=True)
+            if error_msg:
+                self.app._add_to_output_log_queue(f"{error_msg}", is_train=True, is_error=True)
+                
+            # 检测YOLOv8特定的ultralytics.__main__错误
+            if error_msg and "No module named ultralytics.__main__" in error_msg and self.app.selected_yolo_version_name.get() == "YOLOv8":
+                # 显示特定的提示并询问是否自动修复
+                if messagebox.askyesno("YOLOv8命令错误", 
+                                    "检测到ultralytics模块无法直接作为主模块执行。\n\n"
+                                    "这可能是ultralytics包的版本或配置问题。\n\n"
+                                    "是否尝试重新安装ultralytics包以解决此问题？", 
+                                    parent=self.app.master):
+                    # 重新安装ultralytics
+                    self.app._add_to_output_log_queue("正在重新安装ultralytics包...", is_train=True)
+                    try:
+                        # 先卸载现有的
+                        subprocess.run([sys.executable, "-m", "pip", "uninstall", "ultralytics", "-y"], 
+                                      capture_output=True, text=True)
+                        # 重新安装，显式指定安装命令行接口
+                        result = subprocess.run([sys.executable, "-m", "pip", "install", "ultralytics[cli]", "--force-reinstall", "--no-cache-dir"], 
+                                              capture_output=True, text=True)
+                        if result.returncode == 0:
+                            self.app._add_to_output_log_queue("ultralytics包重新安装成功，请尝试重新启动训练", is_train=True)
+                            messagebox.showinfo("安装成功", "ultralytics包已重新安装，请尝试重新启动训练", parent=self.app.master)
+                        else:
+                            self.app._add_to_output_log_queue(f"重新安装失败: {result.stderr}", is_train=True, is_error=True)
+                    except Exception as e:
+                        self.app._add_to_output_log_queue(f"重新安装过程中出错: {str(e)}", is_train=True, is_error=True)
 
     def stop_training(self):
         # (No changes needed here)
@@ -952,12 +1188,10 @@ class TrainingHandler:
                         "run_name": run_name,
                     }
                 }
-                import json
-                ckpt_path = os.path.join(self.checkpoint_dir, f"{run_name}_checkpoint.json")
-                with open(ckpt_path, "w", encoding="utf-8") as f:
+                with open(os.path.join(self.checkpoint_dir, f"{run_name}_checkpoint.json"), "w", encoding="utf-8") as f:
                     json.dump(checkpoint_info, f, ensure_ascii=False, indent=2)
-                self.last_checkpoint_path = ckpt_path
-                self.app._add_to_output_log_queue(f"已保存训练断点: {ckpt_path}", is_train=True)
+                self.last_checkpoint_path = os.path.join(self.checkpoint_dir, f"{run_name}_checkpoint.json")
+                self.app._add_to_output_log_queue(f"已保存训练断点: {self.last_checkpoint_path}", is_train=True)
             else:
                 self.app._add_to_output_log_queue("未找到最新权重，断点未保存。", is_error=True, is_train=True)
         except Exception as e:
@@ -996,3 +1230,250 @@ class TrainingHandler:
         self.app.weights_var.set(checkpoint_info["weights"])
         self.app._add_to_output_log_queue(f"已加载断点参数，准备恢复训练...", is_train=True)
         self.start_training()
+
+    def save_training_settings(self):
+        """保存当前训练配置到文件"""
+        try:
+            # 创建配置目录（如果不存在）
+            os.makedirs(self.settings_dir, exist_ok=True)
+            
+            # 收集需要保存的设置
+            settings = {
+                # YOLO版本配置
+                "yolo_version": self.app.selected_yolo_version_name.get(),
+                "yolo_subversion": self.app.selected_yolo_subversion.get(),
+                "yolo_code_path": self.app.yolo_code_path.get(),
+                
+                # 数据集配置
+                "datasets_yaml_path": self.app.datasets_yaml_path.get(),
+                
+                # 训练参数
+                "weights": self.app.weights_var.get(),
+                "epochs": self.app.epochs_var.get(),
+                "batch_size": self.app.batch_var.get(),
+                "image_size": self.app.imgsz_var.get(),
+                "device": self.app.device_var.get(),
+                "workers": self.app.workers_var.get(),
+                "project_dir": self.app.project_dir_var.get(),
+                "run_name": self.app.run_name_var.get(),
+                
+                # 保存时间戳，用于显示配置时效性
+                "saved_timestamp": str(int(time.time())),
+                "saved_datetime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            }
+            
+            # 如果有其他需要保存的状态，也可以添加到settings字典中
+            for attr in dir(self.app):
+                if attr.endswith('_var') and hasattr(self.app, attr) and attr not in [
+                    'epochs_var', 'batch_var', 'imgsz_var', 'device_var', 'workers_var', 
+                    'project_dir_var', 'run_name_var', 'weights_var'
+                ]:
+                    try:
+                        var = getattr(self.app, attr)
+                        if hasattr(var, 'get'):
+                            settings[attr] = var.get()
+                    except Exception:
+                        pass
+            
+            # 保存设置到JSON文件
+            with open(self.settings_file, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+                
+            self.app._add_to_output_log_queue(f"训练配置已保存到 {self.settings_file}", is_train=True)
+            return True
+            
+        except Exception as e:
+            self.app._add_to_output_log_queue(f"保存训练配置失败: {str(e)}", is_error=True, is_train=True)
+            import traceback
+            self.app._add_to_output_log_queue(traceback.format_exc(), is_error=True, is_train=True)
+            return False
+            
+    def load_training_settings(self):
+        """从文件加载上次保存的训练配置"""
+        try:
+            if not os.path.exists(self.settings_file):
+                self.app._add_to_output_log_queue("未找到已保存的训练配置，使用默认设置", is_train=True)
+                return False
+                
+            # 读取设置文件
+            with open(self.settings_file, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+                
+            # 等待UI组件初始化完成
+            if not hasattr(self.app, 'selected_yolo_version_name') or not hasattr(self.app, 'selected_yolo_subversion'):
+                self.app._add_to_output_log_queue("UI组件尚未完全初始化，延迟加载设置", is_train=True)
+                # 再次尝试加载（延迟2秒）
+                self.app.master.after(2000, self.load_training_settings)
+                return False
+            
+            # 记录加载时间
+            load_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            save_time = settings.get("saved_datetime", "未知")
+            self.app._add_to_output_log_queue(f"加载配置 (保存于: {save_time}, 加载于: {load_time})", is_train=True)
+                
+            # 应用YOLO版本设置
+            if "yolo_version" in settings and settings["yolo_version"]:
+                self.app.selected_yolo_version_name.set(settings["yolo_version"])
+                # 延迟触发版本变更事件，加载子版本
+                self.app.master.after(100, lambda: self.app.yolo_version_combo.event_generate('<<ComboboxSelected>>'))
+                
+                # 设置子版本（延迟200ms确保版本下拉框已更新）
+                if "yolo_subversion" in settings and settings["yolo_subversion"]:
+                    self.app.master.after(200, lambda: self.app.selected_yolo_subversion.set(settings["yolo_subversion"]))
+                    self.app.master.after(300, lambda: self.app.yolo_subversion_combo.event_generate('<<ComboboxSelected>>'))
+            
+            # 设置YOLO代码路径（延迟400ms确保版本选择已完成）
+            if "yolo_code_path" in settings and settings["yolo_code_path"] and os.path.exists(settings["yolo_code_path"]):
+                self.app.master.after(400, lambda path=settings["yolo_code_path"]: self._set_yolo_code_path(path))
+                    
+            # 设置数据集路径
+            if "datasets_yaml_path" in settings and settings["datasets_yaml_path"] and os.path.exists(settings["datasets_yaml_path"]):
+                self.app.datasets_yaml_path.set(settings["datasets_yaml_path"])
+                
+            # 设置训练参数（延迟500ms确保所有必要组件已加载）
+            self.app.master.after(500, lambda: self._apply_training_params(settings))
+            
+            # 更新权重下拉框（延迟600ms确保其他UI元素加载完成）
+            self.app.master.after(600, self._update_weights_combo)
+            
+            # 加载其他可能的变量
+            self.app.master.after(700, lambda: self._apply_additional_settings(settings))
+            
+            return True
+            
+        except Exception as e:
+            self.app._add_to_output_log_queue(f"加载训练配置失败: {str(e)}", is_error=True, is_train=True)
+            import traceback
+            self.app._add_to_output_log_queue(traceback.format_exc(), is_error=True, is_train=True)
+            return False
+    
+    def _set_yolo_code_path(self, path):
+        """设置YOLO代码路径的辅助方法"""
+        if os.path.exists(path):
+            if hasattr(self.app, 'set_global_yolo_code_path'):
+                self.app.set_global_yolo_code_path(path)
+            else:
+                self.app.yolo_code_path.set(path)
+            self.app._add_to_output_log_queue(f"已设置YOLO代码路径: {path}", is_train=True)
+        else:
+            self.app._add_to_output_log_queue(f"警告: YOLO代码路径不存在: {path}", is_train=True)
+    
+    def _apply_training_params(self, settings):
+        """应用训练参数的辅助方法"""
+        try:
+            # 设置训练参数
+            if "weights" in settings and settings["weights"]:
+                weight_path = settings["weights"]
+                
+                # 检查YOLO版本与权重文件是否匹配
+                yolo_version = self.app.selected_yolo_version_name.get() if hasattr(self.app, 'selected_yolo_version_name') else ""
+                
+                # 如果是YOLOv8但使用了YOLOv5的权重，或反之，发出警告并尝试自动切换
+                if "YOLOv8" in yolo_version and "yolov5" in weight_path.lower():
+                    self.app._add_to_output_log_queue(f"警告: 检测到YOLOv8与YOLOv5权重文件不匹配", is_train=True, is_warning=True)
+                    # 获取对应版本的默认权重
+                    yolo_config = next((cfg for name, cfg in config.YOLO_VERSIONS.items() if "YOLOv8" in name), None)
+                    if yolo_config and hasattr(self, 'weights_dir'):
+                        # 获取默认YOLOv8权重，选择与当前规模相似的模型
+                        model_size = 'n' # 默认选择最小模型
+                        if 'yolov5s' in weight_path.lower():
+                            model_size = 's'
+                        elif 'yolov5m' in weight_path.lower():
+                            model_size = 'm'
+                        elif 'yolov5l' in weight_path.lower():
+                            model_size = 'l'
+                        elif 'yolov5x' in weight_path.lower():
+                            model_size = 'x'
+                            
+                        new_weight_name = f"yolov8{model_size}.pt"
+                        new_weight_path = os.path.join(self.weights_dir, new_weight_name)
+                        
+                        if not os.path.exists(new_weight_path):
+                            # 如果本地没有，可以使用模型名称
+                            new_weight_path = new_weight_name
+                            
+                        self.app._add_to_output_log_queue(f"自动切换到兼容的权重: {new_weight_path}", is_train=True)
+                        weight_path = new_weight_path
+                elif "YOLOv5" in yolo_version and "yolov8" in weight_path.lower():
+                    self.app._add_to_output_log_queue(f"警告: 检测到YOLOv5与YOLOv8权重文件不匹配", is_train=True, is_warning=True)
+                    # 获取对应版本的默认权重
+                    yolo_config = next((cfg for name, cfg in config.YOLO_VERSIONS.items() if "YOLOv5" in name), None)
+                    if yolo_config and hasattr(self, 'weights_dir'):
+                        # 获取默认YOLOv5权重，选择与当前规模相似的模型
+                        model_size = 'n' # 默认选择最小模型
+                        if 'yolov8s' in weight_path.lower():
+                            model_size = 's'
+                        elif 'yolov8m' in weight_path.lower():
+                            model_size = 'm'
+                        elif 'yolov8l' in weight_path.lower():
+                            model_size = 'l'
+                        elif 'yolov8x' in weight_path.lower():
+                            model_size = 'x'
+                            
+                        new_weight_name = f"yolov5{model_size}.pt"
+                        new_weight_path = os.path.join(self.weights_dir, new_weight_name)
+                        
+                        if not os.path.exists(new_weight_path):
+                            # 如果本地没有，可以使用模型名称
+                            new_weight_path = new_weight_name
+                            
+                        self.app._add_to_output_log_queue(f"自动切换到兼容的权重: {new_weight_path}", is_train=True)
+                        weight_path = new_weight_path
+                
+                # 设置权重路径
+                if os.path.exists(weight_path):
+                    self.app.weights_var.set(weight_path)
+                    self.app._add_to_output_log_queue(f"已设置权重文件: {weight_path}", is_train=True)
+                elif not os.path.isabs(weight_path) and os.path.exists(os.path.join(self.weights_dir, weight_path)):
+                    full_path = os.path.join(self.weights_dir, weight_path)
+                    self.app.weights_var.set(full_path)
+                    self.app._add_to_output_log_queue(f"已设置权重文件: {full_path}", is_train=True)
+                else:
+                    self.app.weights_var.set(weight_path)  # 即使不存在也设置，因为可能是模型名称
+                    self.app._add_to_output_log_queue(f"警告: 权重文件可能不存在: {weight_path}", is_train=True)
+                
+            if "epochs" in settings:
+                self.app.epochs_var.set(settings["epochs"])
+                
+            if "batch_size" in settings:
+                self.app.batch_var.set(settings["batch_size"])
+                
+            if "image_size" in settings:
+                self.app.imgsz_var.set(settings["image_size"])
+                
+            if "device" in settings:
+                self.app.device_var.set(settings["device"])
+                
+            if "workers" in settings:
+                self.app.workers_var.set(settings["workers"])
+                
+            if "project_dir" in settings and settings["project_dir"]:
+                if os.path.exists(settings["project_dir"]) or os.access(os.path.dirname(settings["project_dir"]), os.W_OK):
+                    self.app.project_dir_var.set(settings["project_dir"])
+                else:
+                    self.app._add_to_output_log_queue(f"警告: 项目目录不存在或无法访问: {settings['project_dir']}", is_train=True)
+                
+            if "run_name" in settings:
+                self.app.run_name_var.set(settings["run_name"])
+        except Exception as e:
+            self.app._add_to_output_log_queue(f"应用训练参数时出错: {e}", is_error=True, is_train=True)
+            import traceback
+            self.app._add_to_output_log_queue(traceback.format_exc(), is_error=True, is_train=True)
+    
+    def _apply_additional_settings(self, settings):
+        """应用其他额外设置的辅助方法"""
+        try:
+            # 处理额外的配置项
+            for key, value in settings.items():
+                if key.endswith('_var') and hasattr(self.app, key) and key not in [
+                    'epochs_var', 'batch_var', 'imgsz_var', 'device_var', 'workers_var', 
+                    'project_dir_var', 'run_name_var', 'weights_var'
+                ]:
+                    try:
+                        var = getattr(self.app, key)
+                        if hasattr(var, 'set'):
+                            var.set(value)
+                    except Exception as e:
+                        self.app._add_to_output_log_queue(f"无法设置 {key}: {e}", is_train=True)
+        except Exception as e:
+            self.app._add_to_output_log_queue(f"应用额外设置时出错: {e}", is_error=True, is_train=True)

@@ -98,7 +98,7 @@ YOLO_VERSIONS = {
             "yolov8x.pt": "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8x.pt"
         },
         "command_generator": lambda params: [
-            sys.executable, "-m", "ultralytics", "train",
+            sys.executable, "-m", "ultralytics.yolo", "train",
             f"data={params['datasets_yaml_path']}",
             f"model={params['weights_path']}",
             f"epochs={params['epochs']}",

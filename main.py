@@ -1419,7 +1419,15 @@ class YoloAnnotatorTrainer:
                         break
 
     def on_closing(self):
-        # ... (as before)
+        # 保存训练配置
+        if hasattr(self, 'training_handler') and hasattr(self.training_handler, 'save_training_settings'):
+            try:
+                self.training_handler.save_training_settings()
+                print("已保存训练配置")
+            except Exception as e:
+                print(f"保存训练配置失败: {e}")
+        
+        # 处理训练进程
         if self.is_training:
             if messagebox.askyesno("训练进行中", "训练仍在进行中。确定要退出吗？", parent=self.master):
                 self.training_handler.stop_training() 
